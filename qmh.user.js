@@ -1,11 +1,8 @@
 // ==UserScript==
-// @name         QMH Monster HLS Player & Downloader
+// @name         QMH Monster Ads Remove & Downloader
 // @namespace    https://github.com/siritami
-// @version      3.1.0
-// @description  Replace the QMH player with a simple HLS player and download its resolved stream
-// @match        https://qmh.red/*
-// @match        https://qmh.monster/*
-// @include      /^https:\/\/qmh\.(red|monster)\/.*$/
+// @version      3.2.0
+// @include      /^https:\/\/qm.*\/.*$/
 // @grant        none
 // @allFrames    true
 // @require      https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js
