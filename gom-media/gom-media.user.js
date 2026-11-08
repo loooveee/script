@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gom Media
 // @namespace    https://github.com/loooveee
-// @version      1.2.3
+// @version      1.3.0
 // @description  Quét và tải toàn bộ ảnh/video trong thread XenForo (ZIP hoặc tải lẻ), kèm trình xem toàn màn hình.
 // @author       loooveee
 // @homepageURL  https://github.com/loooveee/script/tree/main/gom-media
@@ -30,8 +30,6 @@
   const ZIP_PART_LIMIT = 1024 ** 3; // Mỗi file ZIP tối đa ~1 GB, vượt thì tách part để không tràn bộ nhớ / giới hạn 4 GB của ZIP
   const PANEL_PREVIEW_LIMIT = 300; // Số ảnh xem trước trong bảng; xem hết bằng nút "Xem"
   const HISTORY_LIMIT = 10; // Số thread gần nhất được nhớ kết quả quét
-  // Các site tự mở bảng khi vào thread (nhận theo tên, mọi đuôi tên miền).
-  const FAVORITE_SITES = ["voz", "xamvn", "rphang"];
   const MAX_PAGES = 2000;
 
   const SKIP_IMG_PATTERNS = ["/emoji/", "/avatar/", "/avatars/", "smilies", "/styles/"];
@@ -451,20 +449,9 @@
     .blue { background: #2f6fed; } .green { background: #22a052; } .red { background: #d93a3a; }
     .gray { background: #555b66; } .teal { background: #1597a8; }
 
-    /* Nút nằm giữa cạnh phải; kéo lên/xuống để đổi chỗ (vị trí được nhớ). */
-    .fab {
-      position: fixed; right: 18px; top: 45%; z-index: 2147483646;
-      min-width: 52px; height: 52px; padding: 0 12px; border-radius: 26px;
-      background: #2f6fed; font-size: 20px; touch-action: none;
-      border: 2px solid rgba(255,255,255,.85); box-shadow: 0 4px 16px rgba(0,0,0,.5);
-    }
-    .fab.busy { font-size: 13px; background: #22a052; }
-    .fab.dragging { cursor: grabbing; opacity: .85; }
-
-    /* Bảng mở bên trái cột nút nên không bao giờ che nút. */
     .panel {
-      position: fixed; right: 84px; top: 70px; z-index: 2147483646;
-      width: min(400px, calc(100vw - 100px)); max-height: min(680px, calc(100vh - 90px));
+      position: fixed; right: 18px; top: 70px; z-index: 2147483646;
+      width: min(400px, calc(100vw - 24px)); max-height: min(680px, calc(100vh - 90px));
       display: flex; flex-direction: column; gap: 8px; padding: 12px;
       background: #1b1d22; color: #e8e9ec; border: 1px solid #333843; border-radius: 10px;
       box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 13px;
@@ -509,13 +496,9 @@
     .nav { position: fixed; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,.12); font-size: 32px; padding: 10px 16px; }
     .prev { left: 12px; } .next { right: 12px; }
     .lbcount { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); color: #cfd3da; font-size: 13px; }
-    .auto { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #a3a8b3; cursor: pointer; user-select: none; }
-    .auto input { width: auto; margin: 0; }
-    .auto b { color: #e8e9ec; }
   `;
 
   const HTML = `
-    <button class="fab" title="Gom Media — bấm để mở, kéo lên/xuống để đổi chỗ">⬇</button>
     <div class="panel hidden">
       <div class="head"><b>Gom Media</b><button class="x" data-act="close" title="Đóng">✕</button></div>
       <p class="hint">Trang: <code>3</code> · <code>1-5</code> · <code>1,3,7-9</code> · trống = tất cả <span class="total"></span></p>
@@ -533,7 +516,6 @@
       <div class="status"></div>
       <div class="bar"><div class="fill"></div></div>
       <div class="grid"></div>
-      <label class="auto" hidden><input type="checkbox" class="autoopen" /> Tự mở bảng khi vào thread <b class="site"></b></label>
     </div>
     <div class="viewer hidden">
       <div class="vbar"><span class="vcount"></span><button class="x" data-act="vclose" title="Đóng (Esc)">✕</button></div>
@@ -557,20 +539,6 @@
 
   let ui = null;
 
-  // Nhận diện site theo tên chứ không theo đuôi tên miền: voz.vn, voz.net, abc.voz.com, xamvn.xyz, rphang.show...
-  // Dự phòng thêm theo og:site_name nếu site đổi hẳn sang tên miền khác.
-  function favoriteSite() {
-    const labels = location.hostname.toLowerCase().split(".");
-    const siteName = (document.querySelector('meta[property="og:site_name"]')?.content || "").toLowerCase();
-    return FAVORITE_SITES.find((name) => labels.some((l) => l === name || l.startsWith(name)) || siteName.includes(name)) || null;
-  }
-
-  function isThreadPage() {
-    const html = document.documentElement;
-    if (html.dataset.template === "thread_view") return true;
-    return !!document.querySelector("article.message .bbWrapper, .message .bbWrapper");
-  }
-
   function buildUi() {
     const host = document.createElement("div");
     host.id = "gom-media";
@@ -582,7 +550,6 @@
     const $ = (sel) => root.querySelector(sel);
     ui = {
       root,
-      fab: $(".fab"),
       panel: $(".panel"),
       range: $(".range"),
       total: $(".total"),
@@ -602,16 +569,6 @@
     const totalPages = detectTotalPages(document);
     ui.total.textContent = `(thread có ${totalPages} trang)`;
 
-    const site = favoriteSite();
-    if (site) {
-      const box = $(".autoopen");
-      box.checked = GM_getValue("autoOpen", true);
-      box.addEventListener("change", () => GM_setValue("autoOpen", box.checked));
-      $(".site").textContent = site;
-      $(".auto").hidden = false;
-    }
-
-    setupFab();
     root.addEventListener("click", onAction);
     ui.range.addEventListener("keydown", (e) => {
       e.stopPropagation(); // không để phím tắt của trang nuốt mất
@@ -634,56 +591,6 @@
     renderPanelGrid();
     setStatus(state.results.length ? `Đã có ${state.results.length} file media từ lần quét trước` : "Bấm Quét để bắt đầu");
     setBusy(false);
-  }
-
-  // Nút nổi: bấm để mở/đóng bảng, kéo lên/xuống để đổi chỗ — vị trí được nhớ cho mọi site.
-  function setupFab() {
-    const fab = ui.fab;
-    const clampTop = (y) => Math.round(Math.min(Math.max(8, y), window.innerHeight - fab.offsetHeight - 8));
-    const applySaved = () => {
-      const saved = GM_getValue("fabTop", null);
-      if (typeof saved === "number") fab.style.top = `${clampTop(saved)}px`;
-    };
-    applySaved();
-    window.addEventListener("resize", applySaved);
-
-    let drag = null;
-    let suppressClick = false;
-    fab.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      drag = { startY: e.clientY, startTop: fab.getBoundingClientRect().top, moved: false };
-      fab.setPointerCapture?.(e.pointerId);
-    });
-    fab.addEventListener("pointermove", (e) => {
-      if (!drag) return;
-      const dy = e.clientY - drag.startY;
-      if (!drag.moved && Math.abs(dy) < 5) return; // rung tay khi bấm không tính là kéo
-      drag.moved = true;
-      fab.classList.add("dragging");
-      fab.style.top = `${clampTop(drag.startTop + dy)}px`;
-    });
-    const endDrag = () => {
-      if (drag?.moved) {
-        GM_setValue("fabTop", parseInt(fab.style.top, 10));
-        suppressClick = true;
-      }
-      fab.classList.remove("dragging");
-      drag = null;
-    };
-    fab.addEventListener("pointerup", endDrag);
-    fab.addEventListener("pointercancel", endDrag);
-    fab.addEventListener("click", () => {
-      if (suppressClick) {
-        suppressClick = false;
-        return;
-      }
-      togglePanel();
-    });
-  }
-
-  function togglePanel() {
-    ui.fab.hidden = false;
-    ui.panel.classList.toggle("hidden");
   }
 
   function onAction(e) {
@@ -727,7 +634,6 @@
   function setProgress(done, total) {
     const pct = total ? Math.min(100, Math.floor((done / total) * 100)) : 0;
     ui.fill.style.width = `${pct}%`;
-    if (state.job) ui.fab.textContent = `${pct}%`;
   }
 
   function setBusy(busy) {
@@ -740,8 +646,6 @@
       b.view.disabled = !state.results.length;
     }
     ui.range.disabled = busy;
-    ui.fab.classList.toggle("busy", busy);
-    if (!busy) ui.fab.textContent = "⬇";
   }
 
   // Chạy một công việc: khoá nút, bắt lỗi, luôn mở khoá lại khi xong.
@@ -1098,15 +1002,9 @@
     if (!ui) buildUi();
   }
 
-  // Luôn có lệnh trong menu của Tampermonkey/Violentmonkey để mở trên trang không tự nhận diện được.
+  // Chỉ mở thủ công từ menu của Tampermonkey/Violentmonkey — không tự hiện gì trên trang.
   GM_registerMenuCommand("Mở Gom Media", () => {
     ensureUi();
-    ui.fab.hidden = false;
     ui.panel.classList.remove("hidden");
   });
-
-  if (isThreadPage()) {
-    ensureUi();
-    if (favoriteSite() && GM_getValue("autoOpen", true)) ui.panel.classList.remove("hidden");
-  }
 })();

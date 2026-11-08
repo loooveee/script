@@ -14,14 +14,11 @@ A **Tampermonkey** / **Violentmonkey** userscript that scans a XenForo 2 forum t
 
 Installed this way, Tampermonkey/Violentmonkey **updates the script automatically** whenever a new version is pushed to GitHub.
 
-## Supported sites
+## Opening the panel
 
-- **voz, xamvn, rphang:** the **panel opens automatically** when you open a thread.
-  - Sites are recognised by **name**, not by domain suffix, so `voz.vn`, `voz.net`, `abc.voz.com`, `xamvn.xyz`, `rphang.beer`, `rphang2.show`… all work.
-  - If a site moves to a completely different name, the script still recognises it from the site name declared in the page (`og:site_name`).
-  - To stop the panel from opening automatically, untick **Tự mở bảng khi vào thread** (open panel on threads) at the bottom of the panel.
-- **Other XenForo 2 forums:** only the **⬇** button is shown, in the middle of the right edge of the screen. Click it to open the panel, or drag it up or down to move it.
-- **Pages the script doesn't detect:** open the Tampermonkey/Violentmonkey menu and choose **Mở Gom Media** (open Gom Media).
+The script shows nothing on the page by itself. On a XenForo 2 thread, open the **Tampermonkey/Violentmonkey menu** (the extension icon in the toolbar) and choose **Mở Gom Media** (open Gom Media). Close the panel with **✕**.
+
+It works on any XenForo 2 forum, on any domain, and is tested on voz, xamvn and rphang.
 
 ## Usage
 

@@ -12,14 +12,11 @@ Userscript cho **Tampermonkey** / **Violentmonkey** để quét và tải toàn 
 
 Cài bằng link này thì Tampermonkey/Violentmonkey sẽ **tự cập nhật** mỗi khi có bản mới trên GitHub.
 
-## Site được hỗ trợ
+## Mở bảng
 
-- **voz, xamvn, rphang:** vào thread là **bảng tự mở**.
-  - Site được nhận theo **tên**, không theo đuôi tên miền. Vì vậy `voz.vn`, `voz.net`, `abc.voz.com`, `xamvn.xyz`, `rphang.beer`, `rphang2.show`… đều được nhận.
-  - Nếu site đổi hẳn sang tên khác, script vẫn nhận ra nhờ tên site khai báo trong trang (`og:site_name`).
-  - Muốn tắt tự mở thì bỏ dấu ô **Tự mở bảng khi vào thread** ở cuối bảng.
-- **Các diễn đàn XenForo 2 khác:** chỉ hiện nút **⬇** ở giữa cạnh phải màn hình. Bấm nút để mở bảng; kéo nút lên/xuống để đổi chỗ.
-- **Trang không tự nhận diện được:** mở menu của Tampermonkey/Violentmonkey và chọn **Mở Gom Media**.
+Script không tự hiện gì trên trang. Khi đang ở một thread XenForo 2, bấm vào **menu của Tampermonkey/Violentmonkey** (biểu tượng tiện ích trên thanh công cụ) rồi chọn **Mở Gom Media**. Đóng bảng bằng nút **✕**.
+
+Script chạy được trên mọi diễn đàn XenForo 2, với mọi tên miền, và đã được thử trên voz, xamvn và rphang.
 
 ## Sử dụng
 
