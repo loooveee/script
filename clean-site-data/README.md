@@ -1,4 +1,4 @@
-# Dọn Site
+# Clean Site Data
 
 **English** | [Tiếng Việt](README.vi.md)
 
@@ -10,7 +10,7 @@ A **Tampermonkey** / **Violentmonkey** userscript that shows how much storage th
 
 1. Install Tampermonkey or Violentmonkey in your browser.
 2. Open this link and your userscript manager will show its install page:
-   **https://raw.githubusercontent.com/loooveee/script/main/don-site/don-site.user.js**
+   **https://raw.githubusercontent.com/loooveee/script/main/clean-site-data/clean-site-data.user.js**
 
 Installed this way, the script updates automatically.
 

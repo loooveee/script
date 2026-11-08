@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Dọn Site
+// @name         Clean Site Data
 // @namespace    https://github.com/loooveee
-// @version      1.0.0
+// @version      1.0.1
 // @description  Xem dung lượng và xoá dữ liệu của trang đang mở: cookie, Local/Session Storage, IndexedDB, Cache Storage, Service Worker, File System (OPFS).
 // @author       loooveee
-// @homepageURL  https://github.com/loooveee/script/tree/main/don-site
+// @homepageURL  https://github.com/loooveee/script/tree/main/clean-site-data
 // @supportURL   https://github.com/loooveee/script/issues
-// @downloadURL  https://raw.githubusercontent.com/loooveee/script/main/don-site/don-site.user.js
-// @updateURL    https://raw.githubusercontent.com/loooveee/script/main/don-site/don-site.user.js
+// @downloadURL  https://raw.githubusercontent.com/loooveee/script/main/clean-site-data/clean-site-data.user.js
+// @updateURL    https://raw.githubusercontent.com/loooveee/script/main/clean-site-data/clean-site-data.user.js
 // @match        *://*/*
 // @noframes
 // @run-at       document-idle
@@ -348,13 +348,13 @@
 
   function buildUi() {
     const host = document.createElement("div");
-    host.id = "don-site";
+    host.id = "clean-site-data";
     const root = host.attachShadow({ mode: "open" });
     root.innerHTML = `
       <style>${CSS}</style>
       <div class="backdrop" hidden>
-        <div class="dialog" role="dialog" aria-label="Dọn Site">
-          <div class="head"><b>🧹 Dọn Site</b><button class="x" data-act="close" title="Đóng (Esc)">✕</button></div>
+        <div class="dialog" role="dialog" aria-label="Clean Site Data">
+          <div class="head"><b>🧹 Clean Site Data</b><button class="x" data-act="close" title="Đóng (Esc)">✕</button></div>
           <div class="origin"></div>
           <div class="usage"></div>
           <div class="list"></div>
@@ -504,7 +504,7 @@
         const c = await withTimeout(Promise.resolve(type.count()), 5000, type.label);
         if (!c.unsupported) await withTimeout(Promise.resolve(type.clear()), 30000, type.label);
       } catch (e) {
-        console.warn("[Dọn Site]", type.label, e);
+        console.warn("[Clean Site Data]", type.label, e);
       }
     }
     location.reload();

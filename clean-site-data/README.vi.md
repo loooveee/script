@@ -1,4 +1,4 @@
-# Dọn Site
+# Clean Site Data
 
 [English](README.md) | **Tiếng Việt**
 
@@ -8,7 +8,7 @@ Userscript cho **Tampermonkey** / **Violentmonkey**: xem dung lượng trang đa
 
 1. Cài Tampermonkey hoặc Violentmonkey cho trình duyệt.
 2. Mở link sau, trình quản lý script sẽ hiện trang cài đặt:
-   **https://raw.githubusercontent.com/loooveee/script/main/don-site/don-site.user.js**
+   **https://raw.githubusercontent.com/loooveee/script/main/clean-site-data/clean-site-data.user.js**
 
 Cài bằng link này thì script sẽ tự cập nhật.
 
