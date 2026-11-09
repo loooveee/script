@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Clean Site Data
 // @namespace    https://github.com/loooveee
-// @version      1.0.1
+// @version      1.0.2
 // @description  Xem dung lượng và xoá dữ liệu của trang đang mở: cookie, Local/Session Storage, IndexedDB, Cache Storage, Service Worker, File System (OPFS).
 // @author       loooveee
 // @homepageURL  https://github.com/loooveee/script/tree/main/clean-site-data
@@ -339,6 +339,19 @@
 
   let ui = null;
 
+  // Trang bật Trusted Types (YouTube, Google…) chặn gán chuỗi thường vào innerHTML — bọc qua một policy nếu có.
+  let ttPolicy;
+  function trustedHtml(html) {
+    if (ttPolicy === undefined) {
+      try {
+        ttPolicy = window.trustedTypes?.createPolicy?.("clean-site-data", { createHTML: (s) => s }) || null;
+      } catch {
+        ttPolicy = null;
+      }
+    }
+    return ttPolicy ? ttPolicy.createHTML(html) : html;
+  }
+
   function span(className, text) {
     const el = document.createElement("span");
     el.className = className;
@@ -350,7 +363,7 @@
     const host = document.createElement("div");
     host.id = "clean-site-data";
     const root = host.attachShadow({ mode: "open" });
-    root.innerHTML = `
+    root.innerHTML = trustedHtml(`
       <style>${CSS}</style>
       <div class="backdrop" hidden>
         <div class="dialog" role="dialog" aria-label="Clean Site Data">
@@ -365,7 +378,7 @@
             <button class="gray" data-act="close">Đóng</button>
           </div>
         </div>
-      </div>`;
+      </div>`);
     document.documentElement.appendChild(host);
 
     const $ = (s) => root.querySelector(s);
@@ -456,7 +469,7 @@
         .filter(([, v]) => v > 0)
         .map(([k, v]) => `${k}: ${formatBytes(v)}`)
         .join(" · ");
-      ui.usage.innerHTML = `Đang dùng <b></b> / hạn mức <span></span>${details ? "<br><small></small>" : ""}`;
+      ui.usage.innerHTML = trustedHtml(`Đang dùng <b></b> / hạn mức <span></span>${details ? "<br><small></small>" : ""}`);
       ui.usage.querySelector("b").textContent = formatBytes(est.usage);
       ui.usage.querySelector("span").textContent = formatBytes(est.quota);
       if (details) ui.usage.querySelector("small").textContent = details;

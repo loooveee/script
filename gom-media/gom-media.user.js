@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gom Media
 // @namespace    https://github.com/loooveee
-// @version      1.3.0
+// @version      1.3.1
 // @description  Quét và tải toàn bộ ảnh/video trong thread XenForo (ZIP hoặc tải lẻ), kèm trình xem toàn màn hình.
 // @author       loooveee
 // @homepageURL  https://github.com/loooveee/script/tree/main/gom-media
@@ -89,11 +89,19 @@
   }
 
   // Số trang lớn nhất trên thanh phân trang (ưu tiên .pageNav để không dính link thread khác).
-  function detectTotalPages(doc) {
-    const scope = doc.querySelector(".pageNav, .pageNavWrapper") || doc;
+  function detectTotalPages(doc, threadUrl) {
+    const nav = doc.querySelector(".pageNav, .pageNavWrapper");
+    const scope = nav || doc;
+    // Không có thanh phân trang (thread 1 trang): chỉ tính link của chính thread này,
+    // tránh dính link nhảy trang của thread khác (vd. "Similar threads" → ".../page-5").
+    const base = !nav && threadUrl ? cleanBaseUrl(threadUrl) : null;
     let max = 1;
     scope.querySelectorAll(".pageNav-page a, a[href*='/page-'], a[href*='/page/'], a[href*='page=']").forEach((a) => {
       const href = a.getAttribute("href") || "";
+      if (base) {
+        const abs = normalizeUrl(href, threadUrl);
+        if (!abs || cleanBaseUrl(abs) !== base) return;
+      }
       const m = href.match(/page[=/-](\d+)/i);
       const p = m ? parseInt(m[1], 10) : NaN;
       if (!isNaN(p) && p <= MAX_PAGES) max = Math.max(max, p);
@@ -393,8 +401,18 @@
         onload: () => settle(resolve),
         onerror: (e) => settle(reject, new Error(e?.error || e?.details || "Lỗi tải")),
         ontimeout: () => settle(reject, new Error("Hết thời gian chờ")),
+        onabort: () => settle(reject, new Error("Đã huỷ")),
       });
+      // abort() của GM_download không phải lúc nào cũng gọi lại callback — tự kết thúc khi bấm Dừng để công việc không treo.
+      const onCancel = () => {
+        try {
+          req?.abort?.();
+        } catch {}
+        settle(reject, new Error("Đã huỷ"));
+      };
+      if (job.cancelled) return onCancel();
       if (req?.abort) job.requests.add(req);
+      job.controller.signal.addEventListener("abort", onCancel, { once: true });
     });
   }
 
@@ -566,7 +584,7 @@
     };
 
     ui.range.value = GM_getValue("pageRange", "");
-    const totalPages = detectTotalPages(document);
+    const totalPages = detectTotalPages(document, location.href);
     ui.total.textContent = `(thread có ${totalPages} trang)`;
 
     root.addEventListener("click", onAction);
@@ -687,7 +705,7 @@
       GM_setValue("pageRange", raw);
       state.base = cleanBaseUrl(location.href);
 
-      const totalPages = detectTotalPages(document);
+      const totalPages = detectTotalPages(document, location.href);
       let pages = raw ? parsePages(raw) : Array.from({ length: totalPages }, (_, i) => i + 1);
       if (!pages) return "Số trang không hợp lệ. Ví dụ: 3 | 1-5 | 1,3,7-9";
       pages = pages.filter((p) => p <= totalPages);
@@ -724,8 +742,8 @@
         results.push(item);
       }
 
-      // Dừng sớm mà chưa lấy được gì thì giữ nguyên kết quả cũ.
-      if (results.length || !job.cancelled) {
+      // Dừng sớm hoặc trang bị lỗi (mất mạng, Cloudflare...) mà chưa lấy được gì thì giữ nguyên kết quả cũ.
+      if (results.length || (!job.cancelled && !failed.length)) {
         state.results = results;
         saveResults(state.base, results);
         renderPanelGrid();
