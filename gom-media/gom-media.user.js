@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gom Media
 // @namespace    https://github.com/loooveee
-// @version      1.3.1
+// @version      1.3.2
 // @description  Quét và tải toàn bộ ảnh/video trong thread XenForo (ZIP hoặc tải lẻ), kèm trình xem toàn màn hình.
 // @author       loooveee
 // @homepageURL  https://github.com/loooveee/script/tree/main/gom-media
@@ -102,7 +102,8 @@
         const abs = normalizeUrl(href, threadUrl);
         if (!abs || cleanBaseUrl(abs) !== base) return;
       }
-      const m = href.match(/page[=/-](\d+)/i);
+      // Số trang phải kết thúc đoạn URL — không dính "page-9" nằm trong tên thread (".../home-page-9-review.55/page-2").
+      const m = href.match(/page[=/-](\d+)(?=[/?#&]|$)/i);
       const p = m ? parseInt(m[1], 10) : NaN;
       if (!isNaN(p) && p <= MAX_PAGES) max = Math.max(max, p);
     });
@@ -198,8 +199,8 @@
     }
   }
 
-  function sanitizeName(name) {
-    return name.replace(/[\\/:*?"<>|\x00-\x1f]+/g, "_").replace(/^[\s.]+|[\s.]+$/g, "").slice(0, 80);
+  function sanitizeName(name, max = 80) {
+    return name.replace(/[\\/:*?"<>|\x00-\x1f]+/g, "_").replace(/^[\s.]+|[\s.]+$/g, "").slice(0, max).replace(/[\s.]+$/, "");
   }
 
   // ".../threads/ten-thread.12345" → "ten-thread".
@@ -226,7 +227,7 @@
     let name = safeDecode(path.split("/").filter(Boolean).pop() || "");
     name = name.replace(/-([a-z0-9]{2,5})\.\d+$/i, ".$1"); // đính kèm XenForo: "anh-jpg.123" → "anh.jpg"
     name = name.replace(/\.[a-z0-9]{2,5}-([a-z0-9]{2,5})$/i, ".$1"); // host ảnh chuyển định dạng: "abc.jpg-webp" → "abc.webp"
-    name = sanitizeName(name);
+    name = sanitizeName(name, Infinity);
 
     const dot = name.lastIndexOf(".");
     let stem = dot > 0 ? name.slice(0, dot) : name;
@@ -235,6 +236,8 @@
       stem = name;
       ext = "";
     }
+    // Cắt độ dài SAU khi tách đuôi — cắt trước thì tên dài mất đuôi file (ảnh .png bị lưu thành .jpg).
+    stem = sanitizeName(stem);
     ext = MIME_EXT[mime.split(";")[0].trim().toLowerCase()] || ext || (item.type === "video" ? "mp4" : "jpg");
 
     const width = Math.max(3, String(total).length);
@@ -303,9 +306,18 @@
   async function fetchMedia(url, job) {
     let result;
     if (isSameOrigin(url)) {
-      const res = await fetch(url, { credentials: "include", signal: job.controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      result = { data: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get("content-type") || "" };
+      let res;
+      try {
+        res = await fetch(url, { credentials: "include", signal: job.controller.signal });
+      } catch (e) {
+        if (job.cancelled || e?.name === "AbortError") throw e;
+        // Link của diễn đàn chuyển hướng sang máy chủ khác không bật CORS (đính kèm lưu trên S3/R2...) → fetch bị chặn.
+        res = null;
+      }
+      if (res && !res.ok) throw new Error(`HTTP ${res.status}`);
+      result = res
+        ? { data: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get("content-type") || "" }
+        : await gmFetch(url, job);
     } else {
       result = await gmFetch(url, job);
     }
@@ -392,7 +404,15 @@
       let req = null;
       const settle = (fn, value) => {
         job.requests.delete(req);
+        job.controller.signal.removeEventListener("abort", onCancel);
         fn(value);
+      };
+      // abort() của GM_download không phải lúc nào cũng gọi lại callback — tự kết thúc khi bấm Dừng để công việc không treo.
+      const onCancel = () => {
+        try {
+          req?.abort?.();
+        } catch {}
+        settle(reject, new Error("Đã huỷ"));
       };
       req = GM_download({
         url,
@@ -403,13 +423,6 @@
         ontimeout: () => settle(reject, new Error("Hết thời gian chờ")),
         onabort: () => settle(reject, new Error("Đã huỷ")),
       });
-      // abort() của GM_download không phải lúc nào cũng gọi lại callback — tự kết thúc khi bấm Dừng để công việc không treo.
-      const onCancel = () => {
-        try {
-          req?.abort?.();
-        } catch {}
-        settle(reject, new Error("Đã huỷ"));
-      };
       if (job.cancelled) return onCancel();
       if (req?.abort) job.requests.add(req);
       job.controller.signal.addEventListener("abort", onCancel, { once: true });
@@ -557,12 +570,25 @@
 
   let ui = null;
 
+  // Trang bật Trusted Types chặn gán chuỗi thường vào innerHTML — bọc qua một policy nếu có.
+  let ttPolicy;
+  function trustedHtml(html) {
+    if (ttPolicy === undefined) {
+      try {
+        ttPolicy = window.trustedTypes?.createPolicy?.("gom-media", { createHTML: (s) => s }) || null;
+      } catch {
+        ttPolicy = null;
+      }
+    }
+    return ttPolicy ? ttPolicy.createHTML(html) : html;
+  }
+
   function buildUi() {
     const host = document.createElement("div");
     host.id = "gom-media";
     host.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;";
     const root = host.attachShadow({ mode: "open" });
-    root.innerHTML = `<style>${CSS}</style>${HTML}`;
+    root.innerHTML = trustedHtml(`<style>${CSS}</style>${HTML}`);
     document.documentElement.appendChild(host);
 
     const $ = (sel) => root.querySelector(sel);
@@ -953,6 +979,7 @@
   }
 
   function renderPanelGrid() {
+    ui.grid.querySelectorAll("video").forEach((v) => videoObserver.unobserve(v));
     ui.grid.replaceChildren();
     const fragment = document.createDocumentFragment();
     state.results.slice(0, PANEL_PREVIEW_LIMIT).forEach((item, i) => fragment.append(makeTile(item, i)));

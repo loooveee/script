@@ -52,7 +52,7 @@ Mở một chương truyện trên `uukanshu.cc` hoặc `piaotia.com`, thân tru
 node build.mjs
 ```
 
-Script tự clone repo gốc vào `upstream/`, ghim từ điển theo commit vừa clone, và dừng với thông báo lỗi nếu chỗ vá không còn khớp. Sửa userscript mà bản gốc không đổi version thì tăng `USERSCRIPT_REV` trong `build.mjs` để trình quản lý nhận bản mới.
+Script chỉ tự clone repo gốc vào `upstream/` khi thư mục đó chưa có; đã có thì dùng lại nguyên trạng, nên hãy chạy `git -C upstream pull` (hoặc xoá `upstream/`) trước để lấy bản mới của repo gốc. Cũng có thể truyền đường dẫn tới bản clone của bạn: `node build.mjs <đường-dẫn>`. Build ghim từ điển theo commit vừa clone, và dừng với thông báo lỗi nếu chỗ vá không còn khớp. Sửa userscript mà bản gốc không đổi version thì tăng `USERSCRIPT_REV` trong `build.mjs` để trình quản lý nhận bản mới.
 
 ## Nguồn
 

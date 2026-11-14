@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Clean Site Data
 // @namespace    https://github.com/loooveee
-// @version      1.0.2
+// @version      1.0.3
 // @description  Xem dung lượng và xoá dữ liệu của trang đang mở: cookie, Local/Session Storage, IndexedDB, Cache Storage, Service Worker, File System (OPFS).
 // @author       loooveee
 // @homepageURL  https://github.com/loooveee/script/tree/main/clean-site-data
@@ -480,7 +480,8 @@
     const boxes = [...ui.list.querySelectorAll("input[type=checkbox]")];
     const chosen = boxes.filter((b) => b.checked && !b.disabled).map((b) => b.dataset.key);
     const selection = Object.fromEntries(boxes.filter((b) => !b.disabled).map((b) => [b.dataset.key, b.checked]));
-    GM_setValue("selected", selection);
+    // Giữ lựa chọn đã lưu của các loại trang này không hỗ trợ (ô bị khoá), không thì sang trang khác chúng bật lại.
+    GM_setValue("selected", { ...(GM_getValue("selected", null) || {}), ...selection });
     if (!chosen.length) {
       ui.status.textContent = "Chưa chọn loại dữ liệu nào.";
       return;

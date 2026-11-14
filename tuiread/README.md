@@ -54,7 +54,7 @@ Open a chapter on `uukanshu.cc` or `piaotia.com` and the story text turns into V
 node build.mjs
 ```
 
-The script clones upstream into `upstream/`, pins the dictionaries to the cloned commit, and stops with an error if one of its patches no longer applies. If you change the userscript while upstream's version stays the same, bump `USERSCRIPT_REV` in `build.mjs` so userscript managers pick up the new build.
+The script clones upstream into `upstream/` only when that folder does not exist yet; an existing clone is reused as it is, so run `git -C upstream pull` (or delete `upstream/`) first to pick up upstream changes. You can also pass the path of your own clone: `node build.mjs <path>`. The build pins the dictionaries to the cloned commit, and stops with an error if one of its patches no longer applies. If you change the userscript while upstream's version stays the same, bump `USERSCRIPT_REV` in `build.mjs` so userscript managers pick up the new build.
 
 ## Credits
 
