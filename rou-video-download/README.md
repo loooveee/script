@@ -41,8 +41,9 @@ When it is done, failed videos can be retried with **Thử lại** (retry).
 3. The playlist and every video segment come as small **PNG images**: the real data sits in a custom
    `roUd` chunk of the image (zlib-compressed for the playlist). The script takes it out.
 4. Segments are downloaded 6 at a time, and [mux.js](https://github.com/videojs/mux.js) turns the
-   MPEG-TS video into MP4 without re-encoding. The video length is written into the MP4 header so
-   players can show it and seek.
+   MPEG-TS video into MP4 without re-encoding. The script then writes a regular MP4, like the ones
+   ffmpeg makes (one data block and a full sample index), so every player shows both picture and
+   sound and can seek.
 
 ## Notes
 

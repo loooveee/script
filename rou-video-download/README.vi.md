@@ -39,8 +39,8 @@ Tải xong, video nào lỗi có thể bấm **Thử lại**.
 3. Playlist và mọi đoạn video đều được gửi dưới dạng **ảnh PNG** nhỏ: dữ liệu thật nằm trong một chunk
    riêng tên `roUd` của ảnh (playlist thì được nén zlib). Script lấy phần đó ra.
 4. Các đoạn được tải 6 đoạn cùng lúc, rồi [mux.js](https://github.com/videojs/mux.js) chuyển video
-   MPEG-TS thành MP4 mà không mã hoá lại. Thời lượng được ghi vào phần đầu file MP4 để trình phát hiện
-   đúng độ dài và tua được.
+   MPEG-TS thành MP4 mà không mã hoá lại. Sau đó script ghi ra MP4 thường như file ffmpeg tạo ra (một
+   khối dữ liệu và bảng chỉ mục đầy đủ), nên trình phát nào cũng hiện cả hình lẫn tiếng và tua được.
 
 ## Lưu ý
 

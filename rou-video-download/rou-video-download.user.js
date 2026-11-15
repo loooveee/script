@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rou Video Download
 // @namespace    https://github.com/loooveee
-// @version      1.0.0
+// @version      1.0.1
 // @description  Tải video và phim bộ trên rou.video thành file MP4 (chất lượng cao nhất), ngay trong trình duyệt.
 // @author       loooveee
 // @homepageURL  https://github.com/loooveee/script/tree/main/rou-video-download
@@ -319,56 +319,339 @@
   }
 
   // ===================== MP4 =====================
+  //
+  // mux.js chỉ xuất MP4 PHÂN MẢNH (moof/mdat lặp lại, dạng dùng cho phát trực tuyến). Nhiều trình phát
+  // trên máy (ví dụ ứng dụng phim của Windows) chỉ phát được tiếng của loại file này. Mp4Builder gom các
+  // mảnh lại thành MP4 thường như ffmpeg tạo ra: một khối mdat chứa toàn bộ dữ liệu, và moov ở cuối file
+  // có bảng mẫu đầy đủ (stts, ctts, stss, stsz, stsc, stco) cùng edit list để hình và tiếng khớp nhau.
 
-  // mux.js ghi thời lượng "không rõ" (0xffffffff) vào phần đầu MP4; ghi thời lượng thật vào đó
-  // (mvhd, tkhd, mdhd, mehd) để trình phát hiện đúng độ dài và tua được.
-  function patchDuration(init, seconds) {
-    const u8 = new Uint8Array(init), dv = new DataView(u8.buffer);
-    const type = (p) => String.fromCharCode(u8[p + 4], u8[p + 5], u8[p + 6], u8[p + 7]);
-    let movieScale = 1000;
-    const set = (p, v1Off, v0Off, scale) => {
-      const v = Math.round(seconds * scale);
-      if (u8[p + 8] === 1) { dv.setUint32(p + v1Off, Math.floor(v / 2 ** 32)); dv.setUint32(p + v1Off + 4, v >>> 0); }
-      else dv.setUint32(p + v0Off, Math.min(v, 0xfffffffe));
-    };
-    const walk = (start, end) => {
-      let p = start;
-      while (p + 8 <= end) {
-        const size = dv.getUint32(p), t = type(p);
-        if (size < 8 || p + size > end) break;
-        if (t === "moov" || t === "trak" || t === "mdia" || t === "mvex") walk(p + 8, p + size);
-        else if (t === "mvhd") {
-          movieScale = u8[p + 8] === 1 ? dv.getUint32(p + 28) : dv.getUint32(p + 20);
-          set(p, 32, 24, movieScale);
-        } else if (t === "tkhd") set(p, 36, 28, movieScale);
-        else if (t === "mdhd") set(p, 32, 24, u8[p + 8] === 1 ? dv.getUint32(p + 28) : dv.getUint32(p + 20));
-        else if (t === "mehd") set(p, 12, 12, movieScale);
-        p += size;
+  const MP4_EPOCH = 2082844800; // giây từ 1904-01-01 tới 1970-01-01
+
+  const fourcc = (u8, p) => String.fromCharCode(u8[p], u8[p + 1], u8[p + 2], u8[p + 3]);
+
+  // Các box con trực tiếp trong u8[start, end): [{ type, start, size }]
+  function childBoxes(u8, start, end) {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), out = [];
+    let p = start;
+    while (p + 8 <= end) {
+      let size = dv.getUint32(p);
+      if (size === 1) size = Number(dv.getBigUint64(p + 8));
+      else if (size === 0) size = end - p;
+      if (size < 8 || p + size > end) break;
+      out.push({ type: fourcc(u8, p + 4), start: p, size });
+      p += size;
+    }
+    return out;
+  }
+
+  function concatBytes(parts) {
+    const out = new Uint8Array(parts.reduce((n, x) => n + x.length, 0));
+    let p = 0;
+    for (const x of parts) { out.set(x, p); p += x.length; }
+    return out;
+  }
+
+  function box(type, ...parts) {
+    const body = concatBytes(parts);
+    const out = new Uint8Array(8 + body.length);
+    new DataView(out.buffer).setUint32(0, out.length);
+    for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+    out.set(body, 8);
+    return out;
+  }
+
+  // Full box (version + flags). fields: [[bits, value], ...], bits = 64, 32, -32 (có dấu) hoặc 16.
+  function fullBox(type, version, flags, fields) {
+    const size = fields.reduce((n, [bits]) => n + Math.abs(bits) / 8, 4);
+    const body = new Uint8Array(size), dv = new DataView(body.buffer);
+    dv.setUint32(0, ((version << 24) | flags) >>> 0);
+    let p = 4;
+    for (const [bits, v] of fields) {
+      if (bits === 64) { dv.setBigUint64(p, BigInt(v)); p += 8; }
+      else if (bits === 32) { dv.setUint32(p, v >>> 0); p += 4; }
+      else if (bits === -32) { dv.setInt32(p, v); p += 4; }
+      else { dv.setUint16(p, v); p += 2; }
+    }
+    return box(type, body);
+  }
+
+  // Mảng số nguyên tự giãn: đỡ tốn RAM hơn Array thường khi có vài trăm nghìn mẫu.
+  class IntList {
+    constructor(signed = false) { this.a = signed ? new Int32Array(4096) : new Uint32Array(4096); this.n = 0; }
+    push(v) {
+      if (this.n === this.a.length) { const b = new this.a.constructor(this.a.length * 2); b.set(this.a); this.a = b; }
+      this.a[this.n++] = v;
+    }
+    get values() { return this.a.subarray(0, this.n); }
+  }
+
+  // Đọc thời lượng (cùng ctime/mtime) ở đúng vị trí theo version của mvhd / tkhd / mdhd.
+  // Các box này có: version(1) flags(3) ctime mtime, rồi (mvhd/mdhd) timescale duration
+  // hoặc (tkhd) track_ID reserved duration. ctime/mtime/duration dài 8 byte nếu version 1.
+  function setTimes(raw, type, duration, now) {
+    const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    const v1 = raw[8] === 1, w = v1 ? 8 : 4;
+    const put = (p, value) => (v1 ? dv.setBigUint64(p, BigInt(value)) : dv.setUint32(p, Math.min(value, 0xffffffff)));
+    put(12, now);
+    put(12 + w, now);
+    put(12 + 2 * w + 4 + (type === "tkhd" ? 4 : 0), duration); // bỏ qua timescale hoặc track_ID (+ reserved)
+    return raw;
+  }
+
+  class Mp4Builder {
+    constructor(sink) {
+      this.sink = sink;
+      this.tracks = new Map(); // track_ID -> bảng mẫu đang gom
+      this.pos = 0;            // số byte đã ghi ra file
+      this.ready = false;
+    }
+
+    // initSegment của mux.js = ftyp + moov (chưa có mẫu). Ghi ftyp + đầu mdat, giữ moov làm khuôn.
+    async start(init) {
+      const u8 = new Uint8Array(init);
+      const top = childBoxes(u8, 0, u8.length);
+      const ftyp = top.find((b) => b.type === "ftyp"), moov = top.find((b) => b.type === "moov");
+      if (!ftyp || !moov) throw new Error("mux.js không tạo được phần đầu MP4");
+      this.moov = u8.slice(moov.start, moov.start + moov.size);
+      const dv = new DataView(this.moov.buffer);
+      for (const trak of childBoxes(this.moov, 8, this.moov.length).filter((b) => b.type === "trak")) {
+        const kids = childBoxes(this.moov, trak.start + 8, trak.start + trak.size);
+        const tkhd = kids.find((b) => b.type === "tkhd"), mdia = kids.find((b) => b.type === "mdia");
+        const mdhd = childBoxes(this.moov, mdia.start + 8, mdia.start + mdia.size).find((b) => b.type === "mdhd");
+        const id = dv.getUint32(tkhd.start + (this.moov[tkhd.start + 8] === 1 ? 28 : 20));
+        this.tracks.set(id, {
+          timescale: dv.getUint32(mdhd.start + (this.moov[mdhd.start + 8] === 1 ? 28 : 20)),
+          sizes: new IntList(), durations: new IntList(), ctos: new IntList(true), syncs: new IntList(),
+          chunks: [], // [vị trí trong file, số mẫu]
+          firstDts: null, nextDts: 0, anyCto: false, allSync: true,
+        });
       }
-    };
-    walk(0, u8.length);
-    return u8;
+      await this.write(u8.slice(ftyp.start, ftyp.start + ftyp.size));
+      // mdat dùng kích thước 64 bit (size = 1) để không giới hạn 4 GB; số thật được điền lúc xong.
+      this.mdatPos = this.pos;
+      await this.write(this.mdatHeader(0));
+      this.ready = true;
+    }
+
+    mdatHeader(size) {
+      const head = new Uint8Array(16);
+      head.set([0, 0, 0, 1, 0x6d, 0x64, 0x61, 0x74]);
+      new DataView(head.buffer).setBigUint64(8, BigInt(size));
+      return head;
+    }
+
+    async write(u8) {
+      await this.sink.write(u8);
+      this.pos += u8.length;
+    }
+
+    // Một lần xuất của mux.js: các cặp moof + mdat (mỗi moof một track).
+    async add(data) {
+      const u8 = new Uint8Array(data), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+      for (const moof of childBoxes(u8, 0, u8.length).filter((b) => b.type === "moof")) {
+        for (const traf of childBoxes(u8, moof.start + 8, moof.start + moof.size).filter((b) => b.type === "traf")) {
+          const kids = childBoxes(u8, traf.start + 8, traf.start + traf.size);
+          const tfhd = kids.find((b) => b.type === "tfhd");
+          if (!tfhd) continue;
+          const tr = this.tracks.get(dv.getUint32(tfhd.start + 12));
+          if (!tr) continue; // track không có trong phần đầu: bỏ qua
+          const hf = dv.getUint32(tfhd.start + 8) & 0xffffff;
+          let p = tfhd.start + 16, base = moof.start, defDur = 0, defSize = 0, defFlags = 0;
+          if (hf & 0x1) { base = Number(dv.getBigUint64(p)); p += 8; }
+          if (hf & 0x2) p += 4;
+          if (hf & 0x8) { defDur = dv.getUint32(p); p += 4; }
+          if (hf & 0x10) { defSize = dv.getUint32(p); p += 4; }
+          if (hf & 0x20) { defFlags = dv.getUint32(p); p += 4; }
+
+          const tfdt = kids.find((b) => b.type === "tfdt");
+          if (tfdt) {
+            const dts = u8[tfdt.start + 8] === 1 ? Number(dv.getBigUint64(tfdt.start + 12)) : dv.getUint32(tfdt.start + 12);
+            if (tr.firstDts === null) tr.firstDts = tr.nextDts = dts;
+            else if (dts !== tr.nextDts && tr.durations.n) {
+              // Khoảng hở / chồng lấn giữa hai mảnh: bù vào thời lượng của mẫu ngay trước.
+              const last = tr.durations.n - 1;
+              tr.durations.a[last] = Math.max(1, tr.durations.a[last] + dts - tr.nextDts);
+              tr.nextDts = dts;
+            }
+          }
+          if (tr.firstDts === null) tr.firstDts = 0;
+
+          for (const trun of kids.filter((b) => b.type === "trun")) {
+            const tf = dv.getUint32(trun.start + 8) & 0xffffff;
+            const count = dv.getUint32(trun.start + 12);
+            let q = trun.start + 16, dataStart = base, firstFlags = null;
+            if (tf & 0x1) { dataStart = base + dv.getInt32(q); q += 4; }
+            if (tf & 0x4) { firstFlags = dv.getUint32(q); q += 4; }
+            const next = () => { const v = dv.getUint32(q); q += 4; return v; };
+            let total = 0;
+            for (let i = 0; i < count; i++) {
+              const dur = tf & 0x100 ? next() : defDur;
+              const size = tf & 0x200 ? next() : defSize;
+              let flags = tf & 0x400 ? next() : defFlags;
+              if (i === 0 && firstFlags !== null) flags = firstFlags;
+              const cto = tf & 0x800 ? next() | 0 : 0;
+              tr.sizes.push(size);
+              tr.durations.push(dur);
+              tr.ctos.push(cto);
+              if (cto) tr.anyCto = true;
+              if (flags & 0x10000) tr.allSync = false; // sample_is_non_sync_sample
+              else tr.syncs.push(tr.sizes.n);           // số thứ tự mẫu, tính từ 1
+              tr.nextDts += dur;
+              total += size;
+            }
+            if (!count) continue;
+            if (dataStart < 0 || dataStart + total > u8.length) throw new Error("Dữ liệu MP4 từ mux.js bị lệch");
+            tr.chunks.push([this.pos, count]);
+            await this.write(u8.slice(dataStart, dataStart + total));
+          }
+        }
+      }
+    }
+
+    // Ghi moov vào cuối file và điền kích thước mdat. Trả về tổng số byte của file.
+    async finish() {
+      const mdatSize = this.pos - this.mdatPos;
+      await this.write(this.buildMoov(this.pos > 0xffffffff));
+      await this.sink.writeAt(this.mdatPos, this.mdatHeader(mdatSize));
+      return this.pos;
+    }
+
+    buildMoov(useCo64) {
+      const src = this.moov, dv = new DataView(src.buffer);
+      const kids = childBoxes(src, 8, src.length);
+      const mvhd = kids.find((b) => b.type === "mvhd");
+      const movieScale = dv.getUint32(mvhd.start + (src[mvhd.start + 8] === 1 ? 28 : 20));
+      const now = Math.floor(Date.now() / 1000) + MP4_EPOCH;
+
+      // Thời điểm hiện khung / mẫu đầu tiên của mỗi track (giây): căn hình với tiếng bằng edit list.
+      const presStart = (tr) => (tr.firstDts + (tr.ctos.n ? tr.ctos.a[0] : 0)) / tr.timescale;
+      const live = [...this.tracks.values()].filter((tr) => tr.sizes.n);
+      if (!live.length) throw new Error("Không có dữ liệu video");
+      const minStart = Math.min(...live.map(presStart));
+
+      let movieDur = 0;
+      const traks = [];
+      for (const trak of kids.filter((b) => b.type === "trak")) {
+        const tk = childBoxes(src, trak.start + 8, trak.start + trak.size);
+        const tkhd = tk.find((b) => b.type === "tkhd");
+        const tr = this.tracks.get(dv.getUint32(tkhd.start + (src[tkhd.start + 8] === 1 ? 28 : 20)));
+        if (!tr || !tr.sizes.n) continue;
+        let mediaDur = 0;
+        for (const d of tr.durations.values) mediaDur += d;
+        const trackDur = Math.round((mediaDur / tr.timescale) * movieScale);
+        const delay = Math.round((presStart(tr) - minStart) * movieScale);
+        movieDur = Math.max(movieDur, delay + trackDur);
+
+        const edits = [];
+        if (delay > 0) edits.push([delay, -1]);                // edit rỗng: lùi track cho khớp track kia
+        edits.push([trackDur, tr.ctos.n ? tr.ctos.a[0] : 0]);    // bắt đầu từ khung hiện đầu tiên
+        const edts = box("edts", fullBox("elst", 0, 0,
+          [[32, edits.length], ...edits.flatMap(([d, t]) => [[32, d], [-32, t], [16, 1], [16, 0]])]));
+
+        const parts = [];
+        for (const b of tk) {
+          const raw = src.slice(b.start, b.start + b.size);
+          if (b.type === "tkhd") parts.push(setTimes(raw, "tkhd", delay + trackDur, now), edts);
+          else if (b.type === "edts") continue;
+          else if (b.type === "mdia") parts.push(this.buildMdia(raw, tr, mediaDur, now, useCo64));
+          else parts.push(raw);
+        }
+        traks.push(box("trak", ...parts));
+      }
+
+      const out = [];
+      let traksPlaced = false;
+      for (const b of kids) {
+        if (b.type === "mvhd") out.push(setTimes(src.slice(b.start, b.start + b.size), "mvhd", movieDur, now));
+        else if (b.type === "trak") { if (!traksPlaced) { out.push(...traks); traksPlaced = true; } }
+        else if (b.type === "mvex") continue; // chỉ dành cho MP4 phân mảnh
+        else out.push(src.slice(b.start, b.start + b.size));
+      }
+      return box("moov", ...out);
+    }
+
+    buildMdia(raw, tr, mediaDur, now, useCo64) {
+      const parts = [];
+      for (const b of childBoxes(raw, 8, raw.length)) {
+        const sub = raw.slice(b.start, b.start + b.size);
+        if (b.type === "mdhd") parts.push(setTimes(sub, "mdhd", mediaDur, now));
+        else if (b.type === "minf") {
+          const mp = [];
+          for (const c of childBoxes(sub, 8, sub.length)) {
+            const cs = sub.slice(c.start, c.start + c.size);
+            if (c.type !== "stbl") { mp.push(cs); continue; }
+            const stsd = childBoxes(cs, 8, cs.length).find((x) => x.type === "stsd");
+            mp.push(box("stbl", cs.slice(stsd.start, stsd.start + stsd.size), ...this.sampleTables(tr, useCo64)));
+          }
+          parts.push(box("minf", ...mp));
+        } else parts.push(sub);
+      }
+      return box("mdia", ...parts);
+    }
+
+    sampleTables(tr, useCo64) {
+      // Gộp các giá trị giống nhau liên tiếp: [[số lần, giá trị], ...]
+      const runs = (values) => {
+        const out = [];
+        for (const v of values) {
+          if (out.length && out[out.length - 1][1] === v) out[out.length - 1][0]++;
+          else out.push([1, v]);
+        }
+        return out;
+      };
+      const tables = [];
+      const stts = runs(tr.durations.values);
+      tables.push(fullBox("stts", 0, 0, [[32, stts.length], ...stts.flatMap(([c, d]) => [[32, c], [32, d]])]));
+      if (tr.anyCto) {
+        const negative = tr.ctos.values.some((v) => v < 0);
+        const ctts = runs(tr.ctos.values);
+        tables.push(fullBox("ctts", negative ? 1 : 0, 0, [[32, ctts.length], ...ctts.flatMap(([c, o]) => [[32, c], [-32, o]])]));
+      }
+      if (!tr.allSync) {
+        tables.push(fullBox("stss", 0, 0, [[32, tr.syncs.n], ...Array.from(tr.syncs.values, (s) => [32, s])]));
+      }
+      // stsc: mỗi lần mux.js xuất là một chunk; gộp các chunk liên tiếp có cùng số mẫu.
+      const stsc = [];
+      tr.chunks.forEach(([, count], i) => {
+        if (!stsc.length || stsc[stsc.length - 1][1] !== count) stsc.push([i + 1, count]);
+      });
+      tables.push(fullBox("stsc", 0, 0, [[32, stsc.length], ...stsc.flatMap(([first, count]) => [[32, first], [32, count], [32, 1]])]));
+      tables.push(fullBox("stsz", 0, 0, [[32, 0], [32, tr.sizes.n], ...Array.from(tr.sizes.values, (s) => [32, s])]));
+      tables.push(useCo64
+        ? fullBox("co64", 0, 0, [[32, tr.chunks.length], ...tr.chunks.map(([off]) => [64, off])])
+        : fullBox("stco", 0, 0, [[32, tr.chunks.length], ...tr.chunks.map(([off]) => [32, off])]));
+      return tables;
+    }
   }
 
   // Nơi ghi file: ghi thẳng ra đĩa (Chrome / Edge) hoặc gom trong RAM rồi tải về (trình duyệt khác).
+  // writeAt() ghi đè vài byte đã ghi trước đó (kích thước mdat, điền vào khi tải xong).
   function diskSink(handle) {
     let writable;
     return {
       async open() { writable = await handle.createWritable(); },
       write: (u8) => writable.write(u8),
+      writeAt: (position, u8) => writable.write({ type: "write", position, data: u8 }),
       close: () => writable.close(),
       abort: () => writable && writable.abort().catch(() => {}),
     };
   }
 
   function memorySink(name) {
-    let parts = [];
+    let parts = [], offsets = [], size = 0;
     return {
       async open() {},
-      async write(u8) { parts.push(u8); },
+      async write(u8) { parts.push(u8); offsets.push(size); size += u8.length; },
+      async writeAt(position, u8) {
+        // Phần cần ghi đè luôn nằm gọn trong một lần ghi trước đó (đầu mdat được ghi riêng).
+        const i = offsets.findIndex((o, k) => position >= o && position + u8.length <= o + parts[k].length);
+        if (i < 0) throw new Error("Không ghi đè được phần đầu file");
+        parts[i] = parts[i].slice();
+        parts[i].set(u8, position - offsets[i]);
+      },
       async close() {
         const url = URL.createObjectURL(new Blob(parts, { type: "video/mp4" }));
-        parts = [];
+        parts = []; offsets = [];
         const a = document.createElement("a");
         a.href = url;
         a.download = name;
@@ -377,7 +660,7 @@
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 120000);
       },
-      async abort() { parts = []; },
+      async abort() { parts = []; offsets = []; },
     };
   }
 
@@ -396,11 +679,11 @@
     if (!segs.length) throw new Error("Playlist không có đoạn video nào");
 
     const tm = new muxjs.mp4.Transmuxer({ remux: true });
-    let out = [], initDone = false;
+    const mp4 = new Mp4Builder(sink);
+    let out = [], init = null;
     tm.on("data", (seg) => {
-      if (!initDone) {
-        out.push(patchDuration(seg.initSegment, pl.duration));
-        initDone = true;
+      if (!init) {
+        init = new Uint8Array(seg.initSegment);
         if (!quality && seg.info && seg.info.width) quality = resLabel(seg.info.width, seg.info.height);
       }
       out.push(new Uint8Array(seg.data));
@@ -439,7 +722,9 @@
         fed++;
         const pieces = out;
         out = [];
-        for (const p of pieces) { await sink.write(p); written += p.length; }
+        if (pieces.length && !mp4.ready) await mp4.start(init);
+        for (const p of pieces) await mp4.add(p);
+        written = mp4.pos;
         report();
       }
     }));
@@ -479,7 +764,8 @@
       if (failure) throw failure.reason;
       await feed();
       if (fed !== segs.length) throw new Error(`Thiếu ${segs.length - fed} đoạn video`);
-      if (!initDone) throw new Error("mux.js không tạo được MP4 từ video này");
+      if (!mp4.ready) throw new Error("mux.js không tạo được MP4 từ video này");
+      written = await mp4.finish();
       await sink.close();
     } catch (e) {
       inner.abort();
