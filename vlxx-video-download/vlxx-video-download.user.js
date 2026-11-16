@@ -1,15 +1,14 @@
 // ==UserScript==
 // @name         VLXX Video Download
 // @namespace    https://github.com/loooveee
-// @version      1.0.0
+// @version      1.0.1
 // @description  Tải video trên vlxx.net thành file MP4 đặt tên theo diễn viên và mã phim, kèm file mô tả, ngay trong trình duyệt.
 // @author       loooveee
 // @homepageURL  https://github.com/loooveee/script/tree/main/vlxx-video-download
 // @supportURL   https://github.com/loooveee/script/issues
 // @downloadURL  https://raw.githubusercontent.com/loooveee/script/main/vlxx-video-download/vlxx-video-download.user.js
 // @updateURL    https://raw.githubusercontent.com/loooveee/script/main/vlxx-video-download/vlxx-video-download.user.js
-// @match        *://vlxx.net/*
-// @match        *://*.vlxx.net/*
+// @include      /^https?:\/\/(www\.)?vlxx\.[a-z0-9-]+(:\d+)?\//
 // @noframes
 // @run-at       document-idle
 // @require      https://cdn.jsdelivr.net/npm/mux.js@7.1.0/dist/mux.min.js#sha256=eb088a07f954554db7c38114487b21df6d1f28c4a84d53003644e962c7567b5b
@@ -28,6 +27,9 @@
   const RETRIES = 4;
   const SEG_TIMEOUT = 45000;
 
+  // Trang hay đổi tên miền (vlxx.net, vlxx.phd...), nên @include khớp mọi tên miền dạng vlxx.<đuôi>;
+  // script chỉ dùng đường dẫn tương đối và location của trang đang mở, không ghi cứng tên miền nào.
+  //
   // Cách hoạt động:
   //  1. Trang /video/<tên>/<id>/ nhúng trình phát trong một iframe (mỗi server một địa chỉ, kết thúc bằng /s1, /s2...).
   //     Server chưa mở thì hỏi /ajax.php để lấy địa chỉ iframe.

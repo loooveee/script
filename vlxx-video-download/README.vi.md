@@ -14,7 +14,7 @@ Cài bằng link này thì script sẽ tự cập nhật.
 
 ## Sử dụng
 
-1. Mở trang một video (`vlxx.net/video/.../<id>/`).
+1. Mở trang một video (`vlxx.net/video/.../<id>/`, hoặc trang đó ở tên miền mà trang đang dùng).
 2. Mở menu của Tampermonkey/Violentmonkey, chọn **Tải video này (MP4)**.
 3. Nếu trang có nhiều server, chọn một server ở mục **Nguồn**. Server trang đang phát được chọn sẵn.
 4. Bấm **Tải MP4** rồi chọn thư mục để lưu.
@@ -37,6 +37,7 @@ Nếu thư mục đã có video trùng tên, script sẽ hỏi trước khi ghi 
 ## Lưu ý
 
 - **Nên dùng Chrome hoặc Edge cho video dài.** Hai trình duyệt này ghi thẳng file ra đĩa trong lúc tải. Trình duyệt khác giữ cả video trong RAM rồi mới lưu, nên phim dài (1–2 GB) có thể không tải nổi. Ở các trình duyệt đó file mô tả là một lượt tải về riêng, nên hãy cho phép trang tải nhiều file nếu trình duyệt hỏi.
+- **Trang hay đổi tên miền.** Script chạy trên mọi địa chỉ dạng `vlxx.<đuôi>` (`vlxx.net`, `vlxx.phd`…), nên vẫn dùng được sau khi trang đổi tên miền. Script không chạy trên tên khác, ví dụ `vlxx.example.com` hay `sub.vlxx.net`.
 - **Script chỉ chạy khi bạn chọn lệnh trong menu.**
 - **Script cần quyền truy cập tên miền khác** (`@connect *`): trang trình phát và playlist nằm ở tên miền mà vlxx.net không được đọc trực tiếp, nên chúng được tải bằng `GM_xmlhttpRequest`. Lần đầu, trình quản lý script có thể hỏi bạn cho phép.
 - Chất lượng là mức server cung cấp; playlist chỉ có một mức.
